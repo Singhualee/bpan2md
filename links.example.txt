@@ -1,0 +1,10 @@
+# 每行一个百度网盘分享链接。# 开头是注释，空行忽略。
+#
+# 三种写法都支持：
+#   1) 链接里自带提取码
+#   2) 用 | 分隔提取码
+#   3) 不带提取码（公开分享）
+
+https://pan.baidu.com/s/1AAAAAAAAAAAAAAAAAAAAA?pwd=ab12
+https://pan.baidu.com/s/1BBBBBBBBBBBBBBBBBBBBB | cd34
+https://pan.baidu.com/s/1CCCCCCCCCCCCCCCCCCCCC
