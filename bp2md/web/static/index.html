@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 空 favicon：不加这一行，浏览器会去请求 /favicon.ico 拿到 404，
+     控制台里就会多一条红色的报错，看着像页面出问题了 -->
+<link rel="icon" href="data:,">
+<title>bpan2md · 百度网盘音视频转文字</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#181b22; --card2:#1f232c; --line:#2b303b;
+    --fg:#e8eaed; --dim:#9aa3b2; --accent:#4c8dff; --ok:#3ecf8e;
+    --warn:#f5b942; --err:#ff6b6b; --radius:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  /* 整体是一个「上面滚动的内容区 + 下面固定的日志区」的竖排布局。
+     以前的日志是 position:sticky，会浮在内容上面把按钮盖住——
+     加了本地文件那一大块之后，盖住的东西就更多了。 */
+  body{margin:0;background:var(--bg);color:var(--fg);
+       display:flex;flex-direction:column;
+       font:15px/1.6 "Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+  a{color:var(--accent)}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);flex:none;
+         display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:18px;font-weight:600}
+  header .sub{color:var(--dim);font-size:13px}
+  .badges{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{padding:3px 10px;border-radius:20px;font-size:12px;
+         background:var(--card2);border:1px solid var(--line);color:var(--dim)}
+  .badge.ok{color:var(--ok);border-color:#245c45}
+  .badge.bad{color:var(--err);border-color:#5c2a2a}
+  nav{display:flex;gap:4px;padding:10px 22px 0;border-bottom:1px solid var(--line);
+      flex-wrap:wrap;flex:none}
+  nav button{background:none;border:none;color:var(--dim);padding:10px 16px;
+             cursor:pointer;font-size:15px;border-bottom:2px solid transparent}
+  nav button.on{color:var(--fg);border-bottom-color:var(--accent)}
+  main{padding:22px;flex:1 1 auto;overflow:auto;min-height:0}
+  main>section, main>div{max-width:1100px;margin:0 auto}
+  section{display:none}
+  section.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+        padding:18px;margin-bottom:16px}
+  .card h2{margin:0 0 6px;font-size:16px}
+  .card p.hint{color:var(--dim);font-size:13px;margin:4px 0 14px}
+  label{display:block;font-size:13px;color:var(--dim);margin:12px 0 5px}
+  input[type=text],input[type=password],textarea,select{
+    width:100%;background:var(--card2);border:1px solid var(--line);color:var(--fg);
+    border-radius:8px;padding:9px 11px;font:14px/1.5 inherit}
+  textarea{min-height:96px;resize:vertical;font-family:Consolas,monospace}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:200px}
+  button.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;
+             padding:10px 18px;font-size:15px;cursor:pointer;margin:6px 8px 0 0}
+  button.btn.ghost{background:var(--card2);border:1px solid var(--line);color:var(--fg)}
+  button.btn.danger{background:#7a2b2b}
+  button.btn:disabled{opacity:.45;cursor:not-allowed}
+  pre#log{background:#0b0d11;border:1px solid var(--line);border-radius:8px;
+          padding:12px;height:100%;overflow:auto;margin:0;
+          font:12.5px/1.5 Consolas,"Courier New",monospace;white-space:pre-wrap;
+          word-break:break-all}
+  /* 底部常驻的控制台：不属于滚动内容，所以不会盖住任何按钮 */
+  #logwrap{position:static;flex:none;background:#0e1014;
+           height:230px;padding:10px 22px 12px}
+  #logwrap .loginner{max-width:1100px;height:100%;margin:0 auto;display:flex;flex-direction:column}
+  #logwrap .loginner>div{flex:none}
+  pre#log{flex:1 1 auto;min-height:0}
+  #logSplitter{height:9px;flex:none;cursor:row-resize;position:relative;
+               background:#0e1014;border-top:1px solid var(--line)}
+  #logSplitter::after{content:"";position:absolute;left:50%;top:3px;width:42px;height:3px;
+                      transform:translateX(-50%);border-radius:3px;background:var(--line)}
+  #logSplitter:hover::after,#logSplitter.dragging::after{background:var(--accent)}
+  body.resizing{user-select:none;cursor:row-resize}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-weight:500}
+  .state{font-size:13px;padding:10px 12px;border-radius:8px;background:var(--card2);
+         border:1px solid var(--line);margin-bottom:10px}
+  .state.bad{border-color:#5c2a2a;color:#ffc9c9}
+  .state.good{border-color:#245c45;color:#b8f0d4}
+  .tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:12px;
+       background:var(--card2);border:1px solid var(--line);color:var(--dim)}
+  ol.steps{margin:6px 0 0 18px;padding:0;color:var(--dim);font-size:13.5px}
+  ol.steps li{margin:4px 0}
+  details.howto{margin:12px 0 0;background:var(--card2);border:1px solid var(--line);
+                border-radius:8px;padding:10px 14px}
+  details.howto>summary{cursor:pointer;color:var(--accent);font-size:13.5px;
+                        list-style:none;outline:none}
+  details.howto>summary::-webkit-details-marker{display:none}
+  details.howto>summary::before{content:"▸ "}
+  details.howto[open]>summary::before{content:"▾ "}
+  details.howto ol{margin:10px 0 4px 20px;padding:0;font-size:13.5px;line-height:1.75}
+  details.howto li{margin:6px 0}
+  details.howto code{background:#0b0d11;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .warnbox{background:#2a1f12;border:1px solid #5c452a;color:#ffd9a0;
+           padding:9px 12px;border-radius:8px;font-size:13px;margin:10px 0 0}
+  .linkbtn{display:inline-block;margin:8px 8px 0 0;padding:6px 12px;font-size:13px;
+           background:#20304a;border:1px solid #2f4a70;border-radius:7px;
+           color:#bcd4ff;text-decoration:none}
+  .linkbtn:hover{background:#263a58}
+  #dropZone{border:2px dashed var(--line);border-radius:10px;padding:22px;
+            text-align:center;color:var(--dim);font-size:14px;cursor:pointer;
+            background:var(--card2);transition:.15s}
+  #dropZone:hover{border-color:var(--accent);color:var(--fg)}
+  #dropZone.hot{border-color:var(--accent);background:#1b2740;color:var(--fg)}
+  .filelist{margin-top:10px;max-height:290px;overflow:auto;
+            border:1px solid var(--line);border-radius:8px}
+  .filelist table{margin:0}
+  .filelist td,.filelist th{font-size:13px}
+  .filelist tr:last-child td{border-bottom:none}
+  .mini{background:var(--card2);border:1px solid var(--line);color:var(--fg);
+        border-radius:6px;padding:3px 9px;font-size:12.5px;cursor:pointer}
+  .mini:hover{border-color:var(--accent)}
+  .bar{height:7px;background:var(--card2);border-radius:4px;overflow:hidden;
+       margin-top:8px;border:1px solid var(--line)}
+  .bar>i{display:block;height:100%;background:var(--accent);width:0}
+  label.inline{display:flex;align-items:center;gap:7px;text-transform:none}
+  label.inline input{width:auto}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>bpan2md · 百度网盘音视频转文字</h1>
+    <div class="sub">把网盘里的音视频批量转成带时间戳的文字稿，全部在这个页面里完成</div>
+  </div>
+  <div class="badges" id="badges"></div>
+</header>
+
+<nav>
+  <button data-tab="setup" class="on">① 设置</button>
+  <button data-tab="check">② 先测一测</button>
+  <button data-tab="run">③ 开始转写</button>
+  <button data-tab="result">④ 结果</button>
+</nav>
+
+<main>
+  <!-- ============ 设置 ============ -->
+  <section id="setup" class="on">
+    <div class="card">
+      <h2>百度网盘凭据</h2>
+      <p class="hint">这一步是让程序"以你的身份"登录网盘。它只保存在你自己电脑上的
+        <code>.env</code> 文件里，不会发到别处。</p>
+      <a class="linkbtn" href="https://pan.baidu.com" target="_blank" rel="noreferrer">打开百度网盘</a>
+      <label>百度网盘 Cookie</label>
+      <textarea id="BAIDU_COOKIE" placeholder="BDUSS=...; STOKEN=...; BAIDUID=..."></textarea>
+      <details class="howto">
+        <summary>怎么拿到这个 Cookie？（点开看步骤）</summary>
+        <ol>
+          <li>点上面的按钮打开百度网盘，<b>确保已经登录</b>（没登录就先登录）</li>
+          <li>在键盘上按 <b>F12</b>，页面旁边或下方会弹出一个开发者面板</li>
+          <li>在面板顶部找到 <b>Network</b>（中文界面叫「网络」），点它</li>
+          <li>按 <b>F5</b> 刷新一下页面，下面会刷出一堆请求</li>
+          <li>随便点其中最上面的一条，右侧会出现它的详情</li>
+          <li>往下找到 <b>Request Headers</b>（请求标头），里面有一行叫 <b>Cookie</b></li>
+          <li>把 Cookie 那一行<b>冒号后面的整段内容</b>复制下来（会很长，几百上千字符，正常）</li>
+          <li>粘到上面的框里，然后点下面的「保存设置」</li>
+        </ol>
+        <div class="warnbox">
+          这串东西等于你的网盘登录状态。<b>别发给任何人、别贴到网上</b>（包括不要贴给我）。
+          它只保存在你自己电脑的 <code>.env</code> 里。失效了就按上面步骤重新复制一次。
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>用哪家转写服务</h2>
+      <p class="hint">推荐用「阿里云百炼」：国内直连、稳定，最便宜的模型
+        <b>0.288 元/小时</b>，而且<b>支持区分说话人</b>。每月还有 10 小时免费额度。</p>
+      <div class="row">
+        <div>
+          <label>服务</label>
+          <select id="ASR_BACKEND">
+            <option value="bailian">阿里云百炼（推荐，需要 OSS，见下方）</option>
+            <option value="siliconflow">硅基流动（免费，但结果没有逐句时间戳）</option>
+          </select>
+        </div>
+        <div>
+          <label>百炼 API Key</label>
+          <input type="password" id="DASHSCOPE_API_KEY" placeholder="sk-...">
+        </div>
+        <div>
+          <label>硅基流动 API Key（选了硅基流动才要填）</label>
+          <input type="password" id="SILICONFLOW_API_KEY" placeholder="sk-...">
+        </div>
+      </div>
+      <label>转写模型</label>
+      <select id="BAILIAN_MODEL"></select>
+      <p class="hint" id="modelNote"></p>
+      <label>要不要区分不同说话人（多人访谈/会议就打开）</label>
+      <select id="BAILIAN_DIARIZATION">
+        <option value="true">要，标出「发言人 1 / 发言人 2」</option>
+        <option value="false">不用，只要纯文字</option>
+      </select>
+      <details class="howto">
+        <summary>怎么拿到百炼 API Key？（点开看步骤）</summary>
+        <a class="linkbtn" href="https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key"
+           target="_blank" rel="noreferrer">打开百炼 · API-KEY 页面</a>
+        <ol>
+          <li>需要有阿里云账号。没有的话先注册一个（<a href="https://account.aliyun.com/register/register.htm" target="_blank" rel="noreferrer">注册阿里云</a>），
+              并完成实名认证</li>
+          <li>打开上面的「API-KEY 页面」。首次使用会提示开通百炼，<b>按提示点开通即可，开通本身免费</b></li>
+          <li><b>页面右上角把地域选成「华北2（北京）」</b>——这一点很重要：每个地域的
+              API Key 是<b>彼此独立、不能混用</b>的，要和下面对象存储的地域保持一致</li>
+          <li>点 <b>创建 API Key</b>，「归属账号」保持默认（阿里云账号），点确定</li>
+          <li>列表里会出现一串 <code>sk-</code> 开头的字符，点右边的复制图标</li>
+          <li>粘到上面的「百炼 API Key」框里</li>
+        </ol>
+        <div class="warnbox">
+          这个 Key 之后还能在同一个页面再看到、再复制，所以不用担心弄丢。
+          但它<b>等同于你的账号消费权限</b>，别公开。
+          免费额度：录音文件识别每月 <b>36000 秒（10 小时）</b>，超出后按 0.288 元/小时计。
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>文件中转（阿里云 OSS）</h2>
+      <p class="hint">百炼的服务在云端，需要能访问到你的音频，所以要先放进一个对象存储。
+        <b>只有选了「阿里云百炼」才需要填这一块</b>；选硅基流动可以跳过。</p>
+      <a class="linkbtn" href="https://oss.console.aliyun.com/bucket" target="_blank" rel="noreferrer">打开 OSS Bucket 列表</a>
+      <a class="linkbtn" href="https://ram.console.aliyun.com/users" target="_blank" rel="noreferrer">打开 RAM 用户管理</a>
+      <div class="row">
+        <div><label>OSS 地域地址</label>
+          <input type="text" id="OSS_ENDPOINT" placeholder="oss-cn-beijing.aliyuncs.com"></div>
+        <div><label>Bucket 名称</label>
+          <input type="text" id="OSS_BUCKET" placeholder="你的桶名"></div>
+      </div>
+      <div class="row">
+        <div><label>AccessKey ID</label>
+          <input type="text" id="OSS_AK_ID"></div>
+        <div><label>AccessKey Secret</label>
+          <input type="password" id="OSS_AK_SECRET"></div>
+      </div>
+      <label>音频上传访问方式</label>
+      <select id="OSS_PUBLIC_READ">
+        <option value="false">私有（推荐：使用 7 天有效的临时签名链接）</option>
+        <option value="true">公开可读（URL 长期有效，不推荐）</option>
+      </select>
+
+      <details class="howto">
+        <summary>第 1 步：建一个 Bucket（存放中转音频用）</summary>
+        <ol>
+          <li>点上面的「打开 OSS Bucket 列表」。首次使用会提示<b>开通 OSS 服务</b>，
+              <b>按提示开通即可，开通本身免费</b>（只有真正存了、传了才收费）</li>
+          <li>点 <b>创建 Bucket</b></li>
+          <li><b>Bucket 名称</b>：自己起一个，要求全球唯一、只能小写字母数字和短横线，
+              比如 <code>bpan2md-你的名字-2026</code>。这个名字稍后要填到上面的「Bucket 名称」框</li>
+          <li><b>地域：选「华北2（北京）」</b>，和上面百炼 API Key 的地域保持一致。
+              <b>创建后地域不能改</b>，选错了只能删掉重建</li>
+          <li>其余选项<b>全部保持默认</b>，点「完成创建」</li>
+          <li>「OSS 地域地址」就填 <code>oss-cn-beijing.aliyuncs.com</code>
+              （规则是 <code>oss-</code> + 地域代号 + <code>.aliyuncs.com</code>；
+              华北2北京的代号是 <code>cn-beijing</code>。选别的地域就换掉中间那段）</li>
+        </ol>
+        <div class="warnbox">
+          费用：存储约 0.12 元/GB/月。我们只放<b>抽出来的音频</b>（1 小时约 14MB），
+          所以通常一个月几分钱甚至不到，可以忽略。视频原文件不上传。
+        </div>
+      </details>
+
+      <details class="howto">
+        <summary>第 2 步：创建一个 AccessKey（相当于给程序一把钥匙）</summary>
+        <p style="margin:6px 0 0;color:var(--dim);font-size:13px">
+          推荐用子账号（RAM 用户）：权限小、泄露了也只影响这一个桶。
+          怕麻烦的话最底下有主账号的捷径。</p>
+        <ol>
+          <li>点上面的「打开 RAM 用户管理」→ 点 <b>创建用户</b></li>
+          <li><b>登录名称</b>填 <code>bpan2md</code>（显示名称随便填，可以不填）</li>
+          <li>拉到下面的 <b>访问方式</b> 区域，勾选
+              <b>「使用永久 AccessKey 访问」</b></li>
+          <li>勾上后会再出现一个确认框 <b>「我确认必须创建 AccessKey」</b>，
+              <b>也要勾上</b>，否则「确定」按钮点不动</li>
+          <li>点确定 → <b>AccessKey ID 和 AccessKey Secret 就在结果里自动生成好了</b>，
+              立刻复制到上面的两个框里（也可以点下载保存成文件）</li>
+          <li>回到用户列表，点进 <code>bpan2md</code> 这个用户 →
+              <b>权限管理</b> → <b>新增授权</b> → 搜索并勾选
+              <code>AliyunOSSFullAccess</code> → 确定。
+              <b>这一步不能漏</b>：新建的子账号默认<b>没有任何权限</b>，
+              不授权就会在上传时报「没有权限」</li>
+          <li>万一第 5 步的弹窗被你关掉了：进用户详情 → <b>凭证管理</b> → AccessKey 区域 →
+              <b>创建 AccessKey</b>。ID 以后随时能看到，<b>Secret 看不到</b>，只能重建一个</li>
+        </ol>
+        <div class="warnbox">
+          <b>AccessKey Secret 只在创建时完整显示一次，关掉就再也看不到了。</b>
+          请务必在弹窗还开着的时候复制走。万一漏了，把那个 AccessKey 删掉、重新建一个即可，
+          不会有任何损失。
+        </div>
+        <div class="warnbox" style="background:#1b2430;border-color:#2b3d52;color:#c2d4e8">
+          <b>不想建子账号？</b>可以直接用主账号的：登录阿里云控制台 →
+          右上角<b>头像悬停</b> → <b>AccessKey</b> → 按提示勾选风险确认 → <b>创建 AccessKey</b> → 复制。
+          <b>但官方不推荐</b>：主账号 Key 权限过大，一旦泄露，整个阿里云账号（含计费）都不安全。
+          这个 Key 只会存在你自己电脑的 <code>.env</code> 里，但建议还是建个子账号。
+        </div>
+        <div class="warnbox" style="background:#1b2430;border-color:#2b3d52;color:#c2d4e8">
+          <b>在 OSS 控制台看到「Bucket 授权策略」「阻止公共访问」这些页面，都不用管</b>，
+          直接离开。程序是拿着 AccessKey 直接上传的，不需要你在那里加任何策略；
+          在那里乱加策略反而可能把桶暴露给所有人。
+        </div>
+      </details>
+
+      <details class="howto">
+        <summary>配好之后怎么确认没问题？</summary>
+        <ol>
+          <li>点「保存设置」</li>
+          <li>切到上面的 <b>② 先测一测</b> 标签页，依次点三个按钮</li>
+          <li>第 2 个按钮「网络与存储预检」<b>免费</b>，它会真的去连你的 Bucket。
+              如果桶名或地域填错了，它会直接告诉你该怎么改，例如：
+              <br><code>✗ OSS 桶地域不符：桶在 oss-cn-hangzhou，请把 OSS_ENDPOINT 改成 oss-cn-hangzhou.aliyuncs.com</code></li>
+          <li>如果报「没有权限 / AccessDenied」，检查第 2 步里的
+              <code>AliyunOSSFullAccess</code> 是不是漏了</li>
+          <li>如果上传时报权限错误，但权限明明给全了：可能是这个 Bucket 开了
+              「阻止公共访问」。把上面的「音频上传后是否公开可读」改成
+              <b>私有</b>，程序会改用 7 天有效的临时链接，效果一样</li>
+        </ol>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>网盘中转目录</h2>
+      <p class="hint">下载通道只认你自己网盘里的路径，所以文件会先转存到这个目录。
+        事后可以在百度网盘客户端里整个删掉。</p>
+      <input type="text" id="BAIDU_TRANSFER_DIR" placeholder="/bpan2md_中转">
+      <button class="btn" id="saveBtn">保存设置</button>
+      <span id="saveMsg" style="margin-left:12px;color:var(--dim)"></span>
+    </div>
+  </section>
+
+  <!-- ============ 体检 ============ -->
+  <section id="check">
+    <div class="card">
+      <h2>先确认环境没问题，再花时间下载</h2>
+      <p class="hint">这三步都不碰百度网盘，也不花什么钱。乱序做完再开始转写，能省掉大量返工。</p>
+      <button class="btn ghost" data-act="check">1. 环境自检<span style="color:var(--dim)"> · 看还缺什么</span></button>
+      <button class="btn ghost" data-act="preflight">2. 网络与存储预检<span style="color:var(--dim)"> · 免费</span></button>
+      <button class="btn" data-act="doctor">3. 云端链路体检<span style="color:var(--dim)"> · 约 0.001 元</span></button>
+      <div class="state" id="checkState" style="margin-top:14px">
+        点上面任意一个按钮，进度会显示在下面的日志里。
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 转写 ============ -->
+  <section id="run">
+    <div class="card">
+      <h2>把分享链接粘进来</h2>
+      <p class="hint"><b>整段粘进来就行</b>，不用自己挑出链接。在网盘里点「分享」→「复制链接」
+        之后复制到的那一整段（含文件名、「链接:」、「提取码:」这些）原样贴进来即可。
+        一行一个。</p>
+      <textarea id="links" style="min-height:130px"
+        placeholder="通过网盘分享的文件：《片名》.mp4&#10;链接: https://pan.baidu.com/s/1AAA?pwd=ab12 提取码: ab12 复制这段内容后打开百度网盘手机App，操作更方便哦&#10;&#10;https://pan.baidu.com/s/1BBB | cd34"></textarea>
+      <div class="state" id="parsePreview" style="margin-top:10px">粘贴之后，这里会显示识别到了什么。</div>
+      <div class="row" style="margin-top:10px">
+        <div><label>只处理前几个（先试跑就填 1）</label>
+          <input type="text" id="limit" placeholder="留空 = 全部"></div>
+        <div><label>说话人处理</label>
+          <select id="speakers">
+            <option value="auto">自动（按结果判断单/多人）</option>
+            <option value="multi">强制区分说话人</option>
+            <option value="single">确定都是单人（输出更干净）</option>
+          </select></div>
+        <div><label>挂机小时数（大批量推荐）</label>
+          <input type="text" id="retry_hours" placeholder="留空 = 只跑一遍，例如 72"></div>
+      </div>
+      <button class="btn ghost" id="inspectBtn">先看看里面有什么、要花多少钱</button>
+      <button class="btn ghost" id="dryBtn">只看计划（不下载不花钱）</button>
+      <button class="btn" id="runBtn">开始转写</button>
+      <button class="btn danger" id="stopBtn" disabled>停止</button>
+      <div class="state" id="runState" style="margin-top:14px">
+        建议先填 1 个链接 + 「只处理前几个 = 1」跑通，再批量。
+      </div>
+    </div>
+    <div class="card" id="inspectCard" style="display:none">
+      <h2>这个分享里有什么</h2>
+      <div id="inspectBody"></div>
+    </div>
+
+    <div class="card" id="localCard">
+      <h2>或者：直接转本机上的文件（跳过网盘下载）</h2>
+      <p class="hint">用<b>百度网盘客户端</b>把视频下到本机，再让这里直接读它——
+        客户端的速度通常比脚本走网页下载快得多，而且这条路
+        <b>完全不需要百度 Cookie</b>，也不占用网盘里的中转目录。</p>
+
+      <label>方式一（推荐）：选择本机文件夹 —— 不复制文件、不占额外空间</label>
+      <button class="btn ghost" id="pickDirBtn">选择文件夹并扫描</button>
+      <p class="hint">点击后会打开 Windows 文件资源管理器。程序只读你选中的文件，不移动、不改名、更不会删。</p>
+      <label class="inline"><input type="checkbox" id="scanDeep"> 包含子文件夹</label>
+      <div id="scanResult"></div>
+
+      <label>方式二：把文件拖进来，或点下面的框选文件</label>
+      <div id="dropZone">把视频 / 音频文件拖到这里<br>
+        <span style="font-size:12.5px">（也可以点一下这里选择文件。这种方式会复制一份到工具目录）</span></div>
+      <input type="file" id="fileInput" multiple hidden
+             accept="video/*,audio/*,.mkv,.flv,.rmvb,.ts,.mpg,.m4a,.flac,.wma,.amr,.opus,.ape">
+      <div id="uploadBox"></div>
+
+      <label>待处理清单</label>
+      <div id="pendingList"></div>
+      <button class="btn" id="runLocalBtn">开始转写这些本地文件</button>
+      <button class="btn ghost" id="dryLocalBtn">只看计划（不抽音频、不花钱）</button>
+      <button class="btn ghost" id="clearPendingBtn">清空清单</button>
+      <div class="state" id="localState" style="margin-top:14px">
+        先扫一个文件夹，把要转的文件加进清单，再点「开始转写」。
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 结果 ============ -->
+  <section id="result">
+    <div class="card">
+      <h2>转写结果</h2>
+      <p class="hint">每个音视频会产出三样：<code>.md</code> 是给知识库的正文，
+        <code>.chunks.jsonl</code> 是分块（喂向量库用），<code>.result.json</code> 是原始结果。</p>
+      <button class="btn ghost" data-act="index">生成知识库索引</button>
+      <button class="btn ghost" id="refreshOutputs">刷新列表</button>
+      <div id="outputList" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card">
+      <h2>磁盘占用与清理</h2>
+      <p class="hint">转写过程中会留下两类东西：<b>中间文件</b>（下载的原片、抽出来的音频、切片）
+        和<b>进度账本</b>。中间文件留着是为了重跑时不用重新下载、不用重新抽音频——
+        清掉它们不影响已经生成的结果，但以后要重做同一个文件就得重新来一遍。</p>
+      <div id="workUsage" style="margin:10px 0 4px"></div>
+      <button class="btn" id="cleanBtn">清理中间文件</button>
+      <button class="btn ghost" id="cleanAllBtn">连上传的原件一起清理</button>
+      <details class="howto">
+        <summary>清理到底删了什么、留了什么？（点开看）</summary>
+        <ul style="margin:10px 0 4px 20px;padding:0;font-size:13.5px;line-height:1.8">
+          <li><b>会删掉</b>：<code>work/raw</code>（从网盘下下来的原视频）、
+              <code>work/audio</code>（抽出来的 mp3）、<code>work/segments</code>（切片）</li>
+          <li><b>一定保留</b>：<code>work/state</code>——那是"哪些文件已经花钱转写过了"的账本。
+              删了它，下次会把所有文件当新的<b>重新下载并重新计费</b></li>
+          <li><b>不会被碰</b>：<code>output/</code> 里的转写结果、以及你原本的视频文件</li>
+          <li><code>work/uploads</code>（用「拖进来」方式上传时复制的那份）
+              只有你点右边那个按钮才会删——它是你自己的文件</li>
+          <li>想连账本一起清空（完全从头再来）：把整个 <code>work</code> 目录删掉即可，
+              但<b>已经转写过的文件会重新计费</b></li>
+        </ul>
+      </details>
+      <div class="state" id="cleanState" style="margin-top:12px">
+        清理是安全的：已经出稿的文件不会因此被重新下载或重新收费。
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 日志放在 main 外面：它是固定在底部的控制台，不该跟着内容一起滚，
+     更不该浮在内容上面把按钮盖住 -->
+<div id="logSplitter" title="上下拖动调整日志高度；双击恢复默认高度"></div>
+<div id="logwrap">
+  <div class="loginner">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <b style="font-size:14px">进度日志</b>
+      <span class="state" id="jobState" style="margin:0;padding:2px 10px;font-size:12px">空闲</span>
+      <button class="btn ghost" style="margin-left:auto;padding:5px 12px;font-size:13px"
+              onclick="document.getElementById('log').textContent=''">清空</button>
+    </div>
+    <pre id="log">准备就绪。</pre>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+/* ---------- 可拖动的日志分隔条 ---------- */
+const LOG_DEFAULT_HEIGHT = 230, LOG_MIN_HEIGHT = 90;
+let logDragStartY = 0, logDragStartHeight = 0;
+function logMaxHeight() { return Math.max(LOG_MIN_HEIGHT, window.innerHeight - 180); }
+function setLogHeight(height) {
+  $("logwrap").style.height = Math.max(LOG_MIN_HEIGHT, Math.min(logMaxHeight(), height)) + "px";
+}
+$("logSplitter").addEventListener("pointerdown", e => {
+  logDragStartY = e.clientY;
+  logDragStartHeight = $("logwrap").getBoundingClientRect().height;
+  $("logSplitter").classList.add("dragging");
+  document.body.classList.add("resizing");
+  $("logSplitter").setPointerCapture(e.pointerId);
+});
+$("logSplitter").addEventListener("pointermove", e => {
+  if (!$("logSplitter").classList.contains("dragging")) return;
+  setLogHeight(logDragStartHeight + logDragStartY - e.clientY);
+});
+function stopLogDrag() {
+  $("logSplitter").classList.remove("dragging");
+  document.body.classList.remove("resizing");
+}
+$("logSplitter").addEventListener("pointerup", stopLogDrag);
+$("logSplitter").addEventListener("pointercancel", stopLogDrag);
+$("logSplitter").addEventListener("dblclick", () => setLogHeight(LOG_DEFAULT_HEIGHT));
+let CONFIG = null, TAB = "setup";
+
+/* ---------- 通用请求 ---------- */
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const t = await r.text();
+  let data;
+  try { data = JSON.parse(t); } catch (e) { data = { error: t.slice(0, 300) }; }
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+const post = (path, body) => api(path, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body || {})
+});
+
+/* ---------- 标签页 ---------- */
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  TAB = b.dataset.tab;
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === TAB));
+});
+
+/* ---------- 日志 ---------- */
+let logFrom = 0;
+function logLine(text) {
+  const el = $("log");
+  const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  el.textContent += (el.textContent ? "\n" : "") + text;
+  if (stick) el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- 状态 ---------- */
+function renderBadges(cfg) {
+  const b = [];
+  const has = (v) => v && !v.startsWith("(未");
+  b.push(`<span class="badge ${has(cfg.redacted['百度 Cookie'])?'ok':'bad'}">百度凭据 ${has(cfg.redacted['百度 Cookie'])?'已填':'未填'}</span>`);
+  const key = cfg.backend === 'bailian' ? cfg.redacted['百炼 API Key'] : cfg.redacted['硅基流动 API Key'];
+  b.push(`<span class="badge ${has(key)?'ok':'bad'}">转写密钥 ${has(key)?'已填':'未填'}</span>`);
+  if (cfg.backend === 'bailian'){
+    b.push(`<span class="badge ${has(cfg.redacted['OSS 桶'])?'ok':'bad'}">对象存储 ${has(cfg.redacted['OSS 桶'])?'已填':'未填'}</span>`);
+  }
+  b.push(`<span class="badge">${cfg.model}</span>`);
+  $("badges").innerHTML = b.join("");
+}
+
+async function loadState() {
+  const s = await api("/api/state");
+  CONFIG = s.config;
+  renderBadges(CONFIG);
+
+  // 非敏感字段回填；密钥框一律留空，表示"不修改"
+  const p = CONFIG.plain || {};
+  for (const k of ["ASR_BACKEND","BAILIAN_MODEL","BAILIAN_DIARIZATION","OSS_ENDPOINT",
+                   "OSS_BUCKET","OSS_AK_ID","OSS_PUBLIC_READ","BAIDU_TRANSFER_DIR"]) {
+    const el = $(k);
+    if (el && p[k] !== undefined && p[k] !== "") el.value = p[k];
+  }
+
+  // 模型下拉
+  const sel = $("BAILIAN_MODEL");
+  if (sel.options.length === 0) {
+    sel.innerHTML = CONFIG.catalog.map(m =>
+      `<option value="${m.name}">${m.name} — ${m.price}${m.diarization?' · 支持区分说话人':' · 不支持区分说话人'}</option>`
+    ).join("");
+  }
+  sel.value = CONFIG.model;
+  const m = CONFIG.catalog.find(x => x.name === sel.value);
+  $("modelNote").textContent = m ? ("说明：" + m.note) : "";
+  sel.onchange = () => {
+    const mm = CONFIG.catalog.find(x => x.name === sel.value);
+    $("modelNote").textContent = mm ? ("说明：" + mm.note) : "";
+  };
+
+  $("checkState").innerHTML = CONFIG.problems.length
+    ? `<b>还有 ${CONFIG.problems.length} 项没配好：</b><br>` + CONFIG.problems.map(p => "· " + p).join("<br>")
+    : "本机配置看起来齐了。建议按顺序点上面三个按钮。";
+  $("checkState").className = "state " + (CONFIG.problems.length ? "bad" : "good");
+  renderOutputs(s.outputs);
+  renderUploads(s.uploads);
+  renderWork(s.work);
+  if (s.job && s.job.status === "running") attachJob(0);
+}
+
+/* ---------- 磁盘占用 ---------- */
+const WORK_LABEL = {
+  raw: "下载的原片", audio: "抽出的音频", segments: "切片",
+  uploads: "上传的原件", state: "进度账本（保留）", result: "旧版结果",
+  "cookies.json": "百度登录凭据"
+};
+function renderWork(w) {
+  if (!w) return;
+  const order = ["raw", "audio", "segments", "uploads", "state", "cookies.json"];
+  let total = 0;
+  const rows = order.filter(k => w[k]).map(k => {
+    const v = w[k];
+    if (!["state", "cookies.json"].includes(k)) total += v.bytes;
+    const note = k === "state" ? '<span class="tag">不能删</span>'
+      : k === "cookies.json" ? '<span class="tag">账号凭据，可删</span>' : "";
+    return `<tr><td>${WORK_LABEL[k] || k}</td><td>${v.files} 个</td>`
+      + `<td>${fmtSize(v.bytes)}</td><td>${note}</td></tr>`;
+  }).join("");
+  $("workUsage").innerHTML =
+    `<div class="filelist"><table><tr><th>内容</th><th>数量</th><th>占用</th><th></th></tr>${rows}</table></div>`
+    + `<div class="state" style="margin-top:8px">中间文件合计 <b>${fmtSize(total)}</b>`
+    + `（清理后这些空间会还回来）</div>`;
+}
+
+function renderOutputs(list) {
+  if (!list || !list.length) {
+    $("outputList").innerHTML = '<div class="state">还没有产出。转写完成后这里会出现文件。</div>';
+    return;
+  }
+  const rows = list.map(f => `<tr>
+      <td><a href="/api/file?name=${encodeURIComponent(f.name)}" target="_blank">${f.name}</a></td>
+      <td>${(f.size/1024).toFixed(1)} KB</td>
+      <td><a href="/api/file?name=${encodeURIComponent(f.name)}&dl=1">下载</a></td>
+    </tr>`).join("");
+  $("outputList").innerHTML = `<table><tr><th>文件</th><th>大小</th><th></th></tr>${rows}</table>`;
+}
+
+/* ---------- 保存设置 ---------- */
+$("saveBtn").onclick = async () => {
+  const keys = ["BAIDU_COOKIE","ASR_BACKEND","DASHSCOPE_API_KEY","SILICONFLOW_API_KEY",
+                "BAILIAN_MODEL","BAILIAN_DIARIZATION","OSS_ENDPOINT","OSS_BUCKET",
+                "OSS_AK_ID","OSS_AK_SECRET","OSS_PUBLIC_READ","BAIDU_TRANSFER_DIR"];
+  const body = {};
+  for (const k of keys) {
+    const el = $(k); if (!el) continue;
+    const v = el.value.trim();
+    // 密钥框留空表示"不改动"，避免把已保存的值覆盖成空
+    if (["BAIDU_COOKIE","DASHSCOPE_API_KEY","SILICONFLOW_API_KEY","OSS_AK_SECRET","OSS_AK_ID"].includes(k) && !v) continue;
+    body[k] = v;
+  }
+  $("saveMsg").textContent = "保存中…";
+  try {
+    const r = await post("/api/config", body);
+    CONFIG = r.config; renderBadges(CONFIG);
+    $("saveMsg").textContent = "已保存：" + (r.written.length ? r.written.join("、") : "没有变化");
+    $("checkState").innerHTML = CONFIG.problems.length
+      ? `<b>还有 ${CONFIG.problems.length} 项没配好：</b><br>` + CONFIG.problems.map(p => "· " + p).join("<br>")
+      : "配置看起来齐了，去「先测一测」吧。";
+    $("checkState").className = "state " + (CONFIG.problems.length ? "bad" : "good");
+  } catch (e) {
+    $("saveMsg").textContent = "保存失败：" + e.message;
+  }
+  // 清空密钥框，避免明文停在页面上
+  ["DASHSCOPE_API_KEY","SILICONFLOW_API_KEY","OSS_AK_SECRET"].forEach(k => { if ($(k)) $(k).value = ""; });
+};
+
+/* ---------- 起任务 / 跟进度 ---------- */
+let polling = null, JOB_ID = 0;
+async function startJob(action, params, note) {
+  try {
+    const r = await post("/api/job", { action, params: params || {} });
+    JOB_ID = r.job_id;
+    logLine("—— 开始：" + r.title + (note ? "（" + note + "）" : "") + " ——");
+    attachJob(0);
+  } catch (e) {
+    logLine("!! 无法开始：" + e.message);
+  }
+}
+
+function attachJob(from) {
+  logFrom = from || 0;
+  $("stopBtn").disabled = false;
+  if (polling) clearInterval(polling);
+  polling = setInterval(async () => {
+    try {
+      const s = await api("/api/job/" + JOB_ID + "?from=" + logFrom);
+      (s.lines || []).forEach(logLine);
+      logFrom = s.total;
+      const st = {running:"进行中", done:"完成", failed:"出错", cancelled:"已停止", idle:"空闲"}[s.status] || s.status;
+      $("jobState").textContent = st + (s.elapsed ? " · " + s.elapsed + "s" : "");
+      if (s.status !== "running") {
+        clearInterval(polling); polling = null; $("stopBtn").disabled = true;
+        if (s.kind === "clean") {
+          $("cleanState").className = "state " + (s.status === "done" ? "good" : "bad");
+          $("cleanState").textContent = s.status === "done"
+            ? `清理完成，释放了 ${fmtSize((s.result || {}).freed_bytes || 0)}。`
+            : ("清理失败：" + s.error);
+        } else if (s.result && s.result.totals) {
+          const t = s.result.totals;
+          // 本地文件那条路的结论要写在它自己的卡片里，别跨界写到"分享链接"那张卡的提示上
+          const box = (s.kind === "run_local") ? $("localState") : $("runState");
+          if (s.result.dry_run) {
+            box.className = "state good";
+            box.innerHTML = "「只看计划」看完了：计划处理 <b>" + t.total
+              + "</b> 个文件，没有下载、没有上传、没有花钱。"
+              + "<br>确认没问题，就去掉「只看计划」再点一次开始。";
+          } else {
+            box.className = "state " + (t.failed ? "bad" : "good");
+            box.innerHTML = `完成 ${t.done} 个，失败 ${t.failed} 个，待续 ${t.pending} 个。`
+              + (t.failed ? "<br>失败明细见下方日志。" : "") + "<br>去「结果」标签页看看。";
+          }
+        }
+        loadState();
+      }
+    } catch (e) { /* 服务重启等情况，忽略这一轮 */ }
+  }, 700);
+}
+
+/* ---------- 按钮 ---------- */
+document.querySelectorAll("[data-act]").forEach(b => b.onclick = () => {
+  startJob(b.dataset.act, {});
+});
+$("stopBtn").onclick = async () => {
+  await post("/api/stop", {});
+  $("stopBtn").disabled = true;
+};
+$("refreshOutputs").onclick = async () => {
+  const s = await api("/api/outputs"); renderOutputs(s.outputs);
+};
+
+/* ---------- 清理中间文件 ---------- */
+$("cleanBtn").onclick = () => {
+  $("cleanState").className = "state";
+  $("cleanState").textContent = "正在清理下载的原片、抽出的音频和切片…"
+    + "（进度账本保留，已经出稿的文件不会重新下载或重新收费）";
+  startJob("clean", { uploads: false });
+};
+$("cleanAllBtn").onclick = () => {
+  if (!confirm("除了中间文件，还会删掉 work/uploads 里那些你拖进来上传的原件。\n"
+    + "那些是你自己的文件，删了就得重新上传。确定吗？")) return;
+  $("cleanState").className = "state";
+  $("cleanState").textContent = "正在清理中间文件 + 上传的原件…";
+  startJob("clean", { uploads: true });
+};
+
+async function runWith(dry) {
+  const links = $("links").value.trim();
+  if (!links) { $("runState").textContent = "先把分享链接粘到上面的框里。"; return; }
+  const params = {
+    links,
+    limit: $("limit").value.trim() || null,
+    speakers: $("speakers").value,
+    retry_hours: $("retry_hours").value.trim() || null,
+    dry_run: !!dry
+  };
+  $("runState").className = "state";
+  $("runState").textContent = dry ? "正在解析分享、估算耗时和花费（不会下载）…"
+                                  : "已开始。下载可能很慢（百度限速），不用一直盯着这个页面。";
+  startJob("run", params, dry ? "只看计划" : "");
+}
+$("runBtn").onclick = () => runWith(false);
+$("dryBtn").onclick = () => runWith(true);
+
+$("inspectBtn").onclick = async () => {
+  const first = $("links").value.trim().split("\n").filter(l => l.trim() && !l.trim().startsWith("#"))[0];
+  if (!first) { $("runState").textContent = "先粘一个分享链接。"; return; }
+  let url = first.trim(), pwd = "";
+  if (url.includes("|")) { const p = url.split("|"); url = p[0].trim(); pwd = p[1].trim(); }
+  $("inspectCard").style.display = "block";
+  $("inspectBody").innerHTML = "查询中…";
+  try {
+    const d = await post("/api/inspect", { url, pwd });
+    const rows = d.files.map(f => `<tr><td>${f.isdir ? "[文件夹] " : ""}${f.name}</td>
+        <td>${(f.size/1024/1024).toFixed(1)} MB</td>
+        <td>${f.duration ? Math.round(f.duration/60) + " 分钟" : "—"}</td></tr>`).join("");
+    $("inspectBody").innerHTML =
+      `<div class="state good">预计转写：<b>${d.cost || "—"}</b></div>
+       <table><tr><th>文件</th><th>大小</th><th>时长</th></tr>${rows}</table>`;
+  } catch (e) {
+    $("inspectBody").innerHTML = `<div class="state bad">查询失败：${e.message}</div>`;
+  }
+};
+
+/* ---------- 通用小工具 ---------- */
+function esc(s) {
+  return String(s === undefined || s === null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function fmtSize(n) {
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0; n = Number(n) || 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return n.toFixed(i === 0 || n >= 100 ? 0 : 1) + " " + u[i];
+}
+const nl2br = (s) => esc(s).replace(/\n/g, "<br>");
+
+/* ---------- 粘贴识别预览 ---------- */
+let parseTimer = null;
+async function updatePreview() {
+  const text = $("links").value;
+  const box = $("parsePreview");
+  if (!text.trim()) {
+    box.className = "state";
+    box.textContent = "粘贴之后，这里会显示识别到了什么。";
+    return;
+  }
+  try {
+    const d = await post("/api/parse", { text });
+    if (!d.count) {
+      box.className = "state bad";
+      box.innerHTML = "没认出百度网盘的分享链接。" + (d.unrecognized.length
+        ? "<br>下面这些看着像链接，但认不出来——是不是复制断了，或者不是百度网盘的？<br>"
+          + d.unrecognized.map(x => "· " + esc(x)).join("<br>")
+        : "<br>请确认复制到的是 pan.baidu.com 的分享链接。");
+      return;
+    }
+    const rows = d.links.map(l =>
+      `<li>${l.pwd ? "有提取码（<b>" + esc(l.pwd) + "</b>）" : "<b>没有提取码</b>"}　`
+      + `${esc(l.title || l.url)}</li>`).join("");
+    box.className = "state good";
+    box.innerHTML = `<b>认出 ${d.count} 个分享链接</b>`
+      + (d.duplicates ? `（另有 ${d.duplicates} 个重复的已忽略）` : "")
+      + `<ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>`
+      + (d.missing_pwd.length
+          ? `<div class="warnbox">有 ${d.missing_pwd.length} 个链接没带提取码。`
+            + `如果是加密分享，请把「提取码: xxxx」那部分也一起复制进来。</div>` : "");
+  } catch (e) {
+    box.className = "state bad";
+    box.innerHTML = "识别失败：" + nl2br(e.message);
+  }
+}
+$("links").addEventListener("input", () => {
+  clearTimeout(parseTimer);
+  parseTimer = setTimeout(updatePreview, 350);
+});
+
+/* ==================== 本地文件 ==================== */
+let PENDING = [];     // [{path, name, size}]
+let SCAN = [];        // 上一次扫描的结果
+let UPLOADING = false;
+
+function renderPending() {
+  const el = $("pendingList");
+  if (!PENDING.length) {
+    el.innerHTML = '<div class="state">清单是空的。先扫描文件夹，或者把文件拖进上面的框。</div>';
+    return;
+  }
+  const total = PENDING.reduce((a, x) => a + (Number(x.size) || 0), 0);
+  el.innerHTML = '<div class="filelist"><table>'
+    + "<tr><th>文件</th><th>大小</th><th></th></tr>"
+    + PENDING.map((x, i) => `<tr><td>${esc(x.name)}</td><td>${fmtSize(x.size)}</td>`
+        + `<td><button class="mini" data-rm="${i}">移除</button></td></tr>`).join("")
+    + "</table></div>"
+    + `<div class="state" style="margin-top:8px">清单里共 <b>${PENDING.length}</b> 个文件，`
+    + `合计 <b>${fmtSize(total)}</b>。转写按<b>音频时长</b>计费，和文件大小没有直接关系。</div>`;
+  el.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => {
+    PENDING.splice(Number(b.dataset.rm), 1);
+    renderPending();
+  });
+}
+
+function addPending(items) {
+  let added = 0;
+  for (const it of items || []) {
+    if (!it || !it.path) continue;
+    if (PENDING.some(x => x.path === it.path)) continue;
+    PENDING.push({ path: it.path, name: it.name || String(it.path).split(/[\\/]/).pop(),
+                   size: Number(it.size) || 0 });
+    added++;
+  }
+  renderPending();
+  return added;
+}
+
+function renderUploads(list) {
+  if (UPLOADING) return;                 // 别把正在走的上传进度条冲掉
+  const el = $("uploadBox");
+  if (!list || !list.length) { el.innerHTML = ""; return; }
+  el.innerHTML = '<div class="state">工具目录里还留着这些上传过的文件'
+    + '（换过页面或关过窗口也还在，可以直接再加进清单）：</div>'
+    + '<div class="filelist"><table><tr><th>文件名</th><th>大小</th><th></th></tr>'
+    + list.map((f, i) => `<tr><td>${esc(f.name)}</td><td>${fmtSize(f.size)}</td>`
+        + `<td><button class="mini" data-up="${i}">加入清单</button> `
+        + `<button class="mini" data-del="${i}">删除</button></td></tr>`).join("")
+    + "</table></div>";
+  el.querySelectorAll("[data-up]").forEach(b => b.onclick = () => {
+    addPending([list[Number(b.dataset.up)]]);
+  });
+  el.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const f = list[Number(b.dataset.del)];
+    if (!confirm("确定删掉工具目录里的「" + f.name + "」？（不会动你原来的文件）")) return;
+    try {
+      const r = await post("/api/upload/remove", { name: f.name });
+      renderUploads(r.uploads);
+    } catch (e) { alert("删除失败：" + e.message); }
+  });
+}
+
+/* ---- 方式一：选择并扫描文件夹 ---- */
+async function scanLocalFolder(p) {
+  $("scanResult").innerHTML = '<div class="state">正在扫描…</div>';
+  $("localState").className = "state";
+  try {
+    const d = await post("/api/local/scan", { path: p, deep: $("scanDeep").checked });
+    SCAN = d.files;
+    if (!d.count) {
+      $("scanResult").innerHTML = '<div class="state bad">这个文件夹里没有找到音视频文件。'
+        + `<br>${esc(d.dir)}`
+        + (d.skipped_mine ? "<br>（跳过了工具自己产生的文件）" : "")
+        + "<br>如果视频放在子文件夹里，勾上「包含子文件夹」再扫一次。</div>";
+      return;
+    }
+    $("scanResult").innerHTML =
+      `<div class="state good">在 <b>${esc(d.dir)}</b> 里找到 <b>${d.count}</b> 个音视频，`
+      + `共 ${fmtSize(d.total_size)}。${nl2br(d.note || "")}</div>`
+      + '<div class="filelist"><table><tr><th style="width:36px"></th><th>文件</th><th>大小</th></tr>'
+      + d.files.map((f, i) => `<tr><td><input type="checkbox" data-scan="${i}" checked `
+          + `style="width:auto"></td><td>${esc(f.relpath)}</td>`
+          + `<td>${fmtSize(f.size)}</td></tr>`).join("")
+      + "</table></div>"
+      + '<div style="margin-top:8px">'
+      + '<button class="btn ghost" id="addScanned">把勾选的加进待处理清单</button>'
+      + '<button class="btn ghost" id="toggleAll">全选 / 全不选</button></div>';
+    $("addScanned").onclick = () => {
+      const chosen = [];
+      document.querySelectorAll("[data-scan]").forEach(cb => {
+        if (cb.checked) chosen.push(SCAN[Number(cb.dataset.scan)]);
+      });
+      const n = addPending(chosen);
+      $("localState").className = n ? "state good" : "state";
+      $("localState").textContent = n
+        ? `已把 ${n} 个文件加进清单，往下拉点「开始转写这些本地文件」。`
+        : "这些文件已经在清单里了。";
+    };
+    $("toggleAll").onclick = () => {
+      const boxes = [...document.querySelectorAll("[data-scan]")];
+      const allOn = boxes.every(b => b.checked);
+      boxes.forEach(b => { b.checked = !allOn; });
+    };
+  } catch (e) {
+    $("scanResult").innerHTML = '<div class="state bad">扫描失败：' + nl2br(e.message) + "</div>";
+  }
+}
+
+$("pickDirBtn").onclick = async () => {
+  const btn = $("pickDirBtn");
+  btn.disabled = true;
+  try {
+    const picked = await post("/api/local/pick", {});
+    if (picked.cancelled) return;
+    await scanLocalFolder(picked.path);
+  } catch (e) {
+    $("scanResult").innerHTML = '<div class="state bad">打开文件夹失败：' + nl2br(e.message) + "</div>";
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+/* ---- 方式二：拖拽 / 选择文件上传 ---- */
+function uploadFiles(files) {
+  const list = [...files].filter(f => f.size > 0);
+  if (!list.length) return;
+  UPLOADING = true;
+  $("uploadBox").innerHTML = "";
+  let idx = 0;
+  const next = () => {
+    if (idx >= list.length) {
+      UPLOADING = false;
+      $("localState").className = "state good";
+      $("localState").textContent = "上传完成，文件已加进下面的待处理清单。";
+      return;
+    }
+    const f = list[idx++];
+    const row = document.createElement("div");
+    row.className = "state";
+    row.innerHTML = `正在上传 <b>${esc(f.name)}</b>（${fmtSize(f.size)}）`
+      + '<div class="bar"><i></i></div><span></span>';
+    $("uploadBox").appendChild(row);
+    const bar = row.querySelector("i"), note = row.querySelector("span");
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload");
+    // 文件名走自定义头（URL 编码过，避免中文头）。请求体就是文件本身，
+    // 所以不需要 multipart，服务端也不用把文件读进内存。
+    xhr.setRequestHeader("X-File-Name", encodeURIComponent(f.name));
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const p = e.loaded / e.total * 100;
+      bar.style.width = p.toFixed(1) + "%";
+      note.textContent = ` ${p.toFixed(0)}%（${fmtSize(e.loaded)} / ${fmtSize(e.total)}）`;
+    };
+    xhr.onload = () => {
+      let d = {};
+      try { d = JSON.parse(xhr.responseText); } catch (e) { /* 非 JSON 就走下面的兜底 */ }
+      if (xhr.status >= 200 && xhr.status < 300 && d.path) {
+        row.className = "state good";
+        row.innerHTML = `✓ 已上传 ${esc(d.name)}（${fmtSize(d.size)}）`
+          + (d.duration ? `，时长 ${Math.round(d.duration / 60)} 分钟` : "");
+        addPending([d]);
+      } else {
+        row.className = "state bad";
+        row.innerHTML = `✗ ${esc(f.name)}：` + nl2br(d.error || ("HTTP " + xhr.status));
+      }
+      next();
+    };
+    xhr.onerror = () => {
+      row.className = "state bad";
+      row.innerHTML = `✗ ${esc(f.name)}：连接中断（文件可能太大，或服务窗口被关了）`;
+      next();
+    };
+    xhr.send(f);
+  };
+  next();
+}
+
+const dz = $("dropZone");
+dz.onclick = () => $("fileInput").click();
+$("fileInput").onchange = () => {
+  uploadFiles($("fileInput").files);
+  $("fileInput").value = "";     // 同一个文件再选一次也要能触发
+};
+["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); dz.classList.add("hot");
+}));
+["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); dz.classList.remove("hot");
+}));
+dz.addEventListener("drop", e => {
+  const fs = e.dataTransfer ? [...(e.dataTransfer.files || [])] : [];
+  const real = fs.filter(f => f.size > 0);
+  if (real.length) return uploadFiles(real);
+  if (fs.length) {
+    // 拖文件夹进来时，浏览器只给一个 name、size 为 0 的条目——网页读不到
+    // 文件夹内容（安全限制），必须明确提示用户使用系统文件夹选择器。
+    $("localState").className = "state bad";
+    $("localState").innerHTML = "拖进来的是<b>文件夹</b>，而网页不允许读取文件夹里的内容。"
+      + "<br>→ 请用上面的「方式一」：点击「选择文件夹并扫描」，在打开的窗口中选择文件夹。";
+  }
+});
+// 拖到页面其它地方时别让浏览器直接打开那个文件
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => e.preventDefault());
+
+/* ---- 跑本地文件 ---- */
+async function runLocal(dry) {
+  if (!PENDING.length) {
+    $("localState").className = "state bad";
+    $("localState").textContent = "待处理清单是空的。先扫一个文件夹，或者把文件拖进来。";
+    return;
+  }
+  $("localState").className = "state";
+  $("localState").textContent = dry
+    ? "正在读每个文件的时长、估算花费（不会抽音频、不上传、不花钱）…"
+    : "已开始：抽音频 → 上传 → 转写。进度在下面的日志里。";
+  startJob("run_local",
+           { paths: PENDING.map(x => x.path), speakers: $("speakers").value,
+             dry_run: !!dry },
+           dry ? "只看计划" : "");
+}
+$("runLocalBtn").onclick = () => runLocal(false);
+$("dryLocalBtn").onclick = () => runLocal(true);
+$("clearPendingBtn").onclick = () => {
+  PENDING = [];
+  renderPending();
+  $("localState").className = "state";
+  $("localState").textContent = "清单已清空（已经上传到工具目录的文件还在，可在上面重新加入）。";
+};
+renderPending();
+
+loadState().catch(e => logLine("!! 读取状态失败：" + e.message));
+if ($("links").value.trim()) updatePreview();
+</script>
+</body>
+</html>
