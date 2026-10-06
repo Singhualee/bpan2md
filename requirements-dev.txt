@@ -1,0 +1,4 @@
+# Only needed for running the test suite; the pipeline itself does not need it.
+# Keep this file ASCII-only (see the note in requirements.txt).
+-r requirements.txt
+pytest>=7.0
