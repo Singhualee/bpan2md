@@ -1,0 +1,5 @@
+# Only requests is needed for the main pipeline.
+# NOTE: keep this file ASCII-only. pip reads requirements files using the
+# system locale encoding (GBK on Chinese Windows), and any non-ASCII byte
+# here makes `pip install -r requirements.txt` fail with a UnicodeDecodeError.
+requests>=2.28
