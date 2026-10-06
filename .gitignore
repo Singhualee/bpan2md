@@ -1,0 +1,24 @@
+# 凭据：绝对不能提交
+.env
+.env
+work/cookies.json
+
+# 中间产物与输出
+work/
+output/
+.selftest-tmp/
+.pytest_cache/
+pytest-of-*/
+# 这台机器上 pip 建不了系统临时目录时会退回到"当前目录"，
+# 于是在项目根留下一堆空壳（真实发生过）。
+pip-*/
+pip-build-tracker-*/
+pip-ephem-wheel-cache-*/
+pip-install-*/
+tmp*/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
